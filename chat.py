@@ -21,7 +21,7 @@ model = NeuralNet(input_size, hidden_size, output_size).to(device)
 model.load_state_dict(model_state)
 model.eval()
 
-GEMINI_API_KEY = "AIzaSyAoEKM_KKHQ_9lHGhw9GT4Js91T28Rdlz4"  # Replace with your actual Gemini API key
+GEMINI_API_KEY = "SET_API_KEY"  # Replace with your actual Gemini API key
 
 def query_gemini(prompt):
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateText"
