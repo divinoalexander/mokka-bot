@@ -1,82 +1,128 @@
+import json
 import random
-import requests
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import torch
-from model import NeuralNet
-from nltk_utils import bag_of_words, tokenize
+from datetime import datetime
+from review_handler import get_review_sentiment
+from comparison_handler import compare_products
+from data_handler import load_product_data, save_product_data
+from amazon_scraper import AmazonScraper
+from utils import query_llm, find_product, normalize_text
+from config import load_prompts
+import re
+from fuzzywuzzy import fuzz
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Load prompts from JSON
+prompts = load_prompts()
+print("✅ Loaded prompts from prompts.json")
 
-FILE = "data.pth"
-data = torch.load(FILE)
-
-input_size = data["input_size"]
-hidden_size = data["hidden_size"]
-output_size = data["output_size"]
-all_words = data['all_words']
-tags = data['tags']
-model_state = data["model_state"]
-
-model = NeuralNet(input_size, hidden_size, output_size).to(device)
-model.load_state_dict(model_state)
-model.eval()
-
-GEMINI_API_KEY = "SET_API_KEY"  # Replace with your actual Gemini API key
-
-def query_gemini(prompt):
-    url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateText"
-    headers = {"Content-Type": "application/json"}
-    params = {"key": GEMINI_API_KEY}
-    data = {"prompt": {"text": prompt}, "max_output_tokens": 200}
-    
+# Load chat history from JSON
+def load_chat_history():
     try:
-        response = requests.post(url, headers=headers, params=params, json=data)
-        result = response.json()
-        print("Gemini API Response:", result)  # Debugging
-        
-        if "candidates" in result and len(result["candidates"]) > 0:
-            return result["candidates"][0]["output"]
+        with open("chatlog.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"chat_history": []}
+
+# Save chat history to JSON
+def save_chat_history(user_input, bot_response):
+    chat_data = load_chat_history()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    new_entry = {
+        "timestamp": timestamp,
+        "user": user_input,
+        "bot": bot_response
+    }
+    
+    chat_data["chat_history"].append(new_entry)
+    
+    with open("chatlog.json", "w", encoding="utf-8") as f:
+        json.dump(chat_data, f, indent=4, ensure_ascii=False)
+
+# Function to get a random greeting from prompts.json
+def get_greeting():
+    return random.choice(prompts.get("greetings", ["Hello! How can I assist you?"]))
+
+# Function to trigger scraper when a product is missing
+def scrape_product(product_name):
+    print(f"🔍 Scraping data for {product_name}...")
+    try:
+        scraper = AmazonScraper()
+        product_url = scraper.get_product_url(product_name)
+        if product_url:
+            print(f"✅ Found product URL: {product_url}")
+            product_data = scraper.scrape_amazon(product_url)
+            if product_data:
+                print(f"✅ Scraped product data: {product_data}")
+                save_product_data(product_data)
+                return product_data
+            else:
+                print("❌ No product data found after scraping.")
         else:
-            return "I couldn't generate a response. Try again."
+            print("❌ No product URL found.")
+        return None
     except Exception as e:
-        print(f"Error: {e}")
-        return "There was an issue getting recommendations. Try again."
+        print(f"❌ Scraper error: {e}")
+        return None
 
+# Function to get product recommendations
 def get_product_recommendations(product_name):
-    prompt = f"Give me the top 5 recommended {product_name} models with their details."
-    return query_gemini(prompt)
+    product = find_product(product_name)
+    
+    if not product:
+        print("❌ Product not found in existing data. Triggering scraper...")
+        product_data = scrape_product(product_name)
+        if product_data:
+            print("✅ Scraping successful. Reloading product data...")
+            product_data = load_product_data()
+            product = find_product(product_name)
+    
+    if product:
+        return f"📌 **Product:** {product.get('Title')}\n💰 **Price:** {product.get('Price', 'Price Not Available')}\n🌐 **Website:** {product.get('Website', 'Unknown')}"
+    else:
+        return "I couldn't find any product recommendations for that. Let me know if you need something else."
 
+# Function to extract product name from a user query
 def extract_product_name(text):
-    words = text.split()
-    stopwords = ["buy", "price", "details", "tell", "me", "about", "recommendation", "give", "show"]
-    product_name = " ".join([word for word in words if word.lower() not in stopwords])
+    stopwords = ["buy", "price", "details", "tell", "me", "about", "recommendation", "give", "show", "what", "is", "the", "can", "you"]
+    words = [word for word in text.split() if word.lower() not in stopwords]
+    product_name = " ".join(words)
+    print(f"Extracted product name: {product_name}")
     return product_name.strip()
 
-def analyze_sentiment(text):
-    analyzer = SentimentIntensityAnalyzer()
-    sentiment_score = analyzer.polarity_scores(text)
-    
-    if sentiment_score['compound'] >= 0.05:
-        return "Positive"
-    elif sentiment_score['compound'] <= -0.05:
-        return "Negative"
-    else:
-        return "Neutral"
+# Main function to handle user queries
+def get_response(user_input):
+    if not user_input.strip():
+        return random.choice(prompts["fallback_responses"])
+        
+    product_name = extract_product_name(user_input)
+    response = ""
 
-def get_response(text):
-    sentence = tokenize(text)
-    X = bag_of_words(sentence, all_words)
-    X = torch.from_numpy(X).reshape(1, X.shape[0]).to(device)
+    if any(greeting in user_input.lower() for greeting in ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]):
+        response = get_greeting()
+    elif any(keyword in user_input.lower() for keyword in ["recommendation", "suggest", "tell me about", "what is", "details", "price", "buy"]):
+        response = get_product_recommendations(product_name)
+    elif any(keyword in user_input.lower() for keyword in ["review", "feedback", "what do people think", "opinion"]):
+        response = get_review_sentiment(product_name)
+    elif any(keyword in user_input.lower() for keyword in ["compare", "comparison"]):
+        response = compare_products(user_input)
+    else:
+        product = find_product(product_name)
+        if product:
+            prompt = f"The user asked: {user_input}. Respond based on the available product information."
+            response = query_llm(prompt, product)
+        else:
+            response = "I couldn't find any product recommendations for that. Let me know if you need something else."
     
-    output = model(X)
-    _, predicted = torch.max(output, dim=1)
-    tag = tags[predicted.item()]
+    save_chat_history(user_input, response)
     
-    if "recommendation" in text.lower() or "suggest" in text.lower():
-        product_name = extract_product_name(text)
-        return get_product_recommendations(product_name)
-    
-    if "review" in text.lower() or "feedback" in text.lower():
-        return "Based on sentiment analysis, the product has mostly " + analyze_sentiment("This product is amazing! I love the quality and design.") + " reviews."
-    
-    return "I can fetch product recommendations and analyze sentiment. Try asking about a product!"
+    return response
+
+# Example Usage
+if __name__ == "__main__":
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["exit", "quit"]:
+            print("Chatbot: Goodbye!")
+            break
+        response = get_response(user_input)
+        print(f"Chatbot: {response}")

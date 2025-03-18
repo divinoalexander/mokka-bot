@@ -1,0 +1,30 @@
+{
+    "greetings": [
+        "Hello there! How can I assist you today? 😊",
+        "Hey! Great to see you. What can I do for you? 🌟",
+        "Hi! I'm here to help with product recommendations. What's on your mind? 🚀",
+        "Good morning! Ready to explore some awesome smartphones? 📱",
+        "Hey dude! What's up? Let me know how I can help. 😎",
+        "Hi there! Excited to chat with you. What do you need? 💬",
+        "Hello! I'm all ears. What can I do for you? 👂",
+        "Hey! Let's make today awesome. How can I assist you? 🌈"
+    ],
+    "fallback_responses": [
+        "I'm not sure how to respond to that. Can you try asking about a specific product?",
+        "Hmm, I didn't quite get that. Could you try asking about a product recommendation?",
+        "I'm still learning! I'm best at helping with product recommendations and reviews.",
+        "Let's try that again. What product would you like to know more about?"
+    ],
+    "loading_messages": [
+        "Looking up that product for you... This will just take a moment.",
+        "Searching Amazon for the best deals... One moment please.",
+        "Fetching the latest product information... Please wait.",
+        "Connecting to our product database... Just a second."
+    ],
+    "error_messages": [
+        "Sorry, I couldn't find that product right now. Could we try another one?",
+        "Oops! Something went wrong while searching. Can we try a different product?",
+        "I'm having trouble connecting to the product database. Let's try again in a moment.",
+        "The search didn't return any results. Maybe try a more specific product name?"
+    ]
+}
