@@ -1,2 +1,11 @@
 chatlog.json
 scraped_product_data.json
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+# JetBrains IDE
+.idea/
+*.iml
